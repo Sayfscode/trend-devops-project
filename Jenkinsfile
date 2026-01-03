@@ -7,13 +7,7 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Build Frontend') {
-      steps {
-        dir('Trend') {
-          sh 'npm install'
-          sh 'npm run build'
-        }
-      }
+    
     }
 
     stage('Build Docker Image') {
