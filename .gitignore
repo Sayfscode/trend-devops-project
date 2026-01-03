@@ -5,7 +5,6 @@ terraform.tfstate.backup
 *.tfstate
 *.tfstate.*
 
-# Node / Build / OS junk
 node_modules/
 dist/
 .DS_Store

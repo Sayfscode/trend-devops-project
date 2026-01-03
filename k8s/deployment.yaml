@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trend-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trend-app
+  template:
+    metadata:
+      labels:
+        app: trend-app
+    spec:
+      containers:
+      - name: trend-app
+        image: sayfops/trend-devops-app:v1
+        ports:
+        - containerPort: 80
