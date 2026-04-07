@@ -1,12 +1,21 @@
 # Terraform
 .terraform/
-terraform.tfstate
-terraform.tfstate.backup
 *.tfstate
 *.tfstate.*
+*.tfvars
+crash.log
 
+# Node
 node_modules/
-dist/
+
+# OS
 .DS_Store
+Thumbs.db
 
+# IDE
+.vscode/
+.idea/
 
+# Environment
+.env
+.env.*

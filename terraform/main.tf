@@ -10,60 +10,78 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = var.aws_region
 }
 
 # -------- VPC ----------
-resource "aws_vpc" "trend_vpc" {
-  cidr_block = "10.0.0.0/16"
+resource "aws_vpc" "main" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
   tags = {
-    Name = "trend-vpc"
+    Name = "${var.project_name}-vpc"
   }
 }
 
 # -------- Subnet ----------
-resource "aws_subnet" "trend_subnet" {
-  vpc_id                  = aws_vpc.trend_vpc.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
+resource "aws_subnet" "public" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = var.subnet_cidr
+  availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.project_name}-public-subnet"
+  }
 }
 
 # -------- Internet Gateway ----------
-resource "aws_internet_gateway" "trend_igw" {
-  vpc_id = aws_vpc.trend_vpc.id
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
 # -------- Route Table ----------
-resource "aws_route_table" "trend_rt" {
-  vpc_id = aws_vpc.trend_vpc.id
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.trend_igw.id
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
   }
 }
 
-resource "aws_route_table_association" "trend_rta" {
-  subnet_id      = aws_subnet.trend_subnet.id
-  route_table_id = aws_route_table.trend_rt.id
+resource "aws_route_table_association" "public" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
 }
 
 # -------- Security Group ----------
-resource "aws_security_group" "jenkins_sg" {
-  name        = "jenkins-sg"
-  description = "Allow Jenkins & SSH"
-  vpc_id      = aws_vpc.trend_vpc.id
+resource "aws_security_group" "jenkins" {
+  name        = "${var.project_name}-jenkins-sg"
+  description = "Allow Jenkins UI and SSH access"
+  vpc_id      = aws_vpc.main.id
 
+  # SSH — restricted to your IP only
   ingress {
+    description = "SSH from my IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.my_ip]
   }
 
+  # Jenkins UI — open for access
   ingress {
+    description = "Jenkins UI"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
@@ -76,36 +94,59 @@ resource "aws_security_group" "jenkins_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-# -------- EC2 ----------
-resource "aws_instance" "jenkins_ec2" {
-  ami           = "ami-00ca570c1b6d79f36" 
-  instance_type = "t3.micro"
-
-  subnet_id              = aws_subnet.trend_subnet.id
-  vpc_security_group_ids = [aws_security_group.jenkins_sg.id]
-  key_name = "trend-key"
-    
-user_data = <<EOF
-#!/bin/bash
-yum update -y
-
-# Install Java
-yum install -y java-17-amazon-corretto
-
-# Enable Jenkins repo
-wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
-
-# Install Jenkins
-yum install -y jenkins
-
-systemctl enable jenkins
-systemctl start jenkins
-EOF
 
   tags = {
-    Name = "jenkins-server"
+    Name = "${var.project_name}-jenkins-sg"
+  }
+}
+
+# -------- Find latest Amazon Linux 2023 AMI ----------
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# -------- EC2 Instance (Jenkins Server) ----------
+resource "aws_instance" "jenkins" {
+  ami                    = data.aws_ami.amazon_linux.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.jenkins.id]
+  key_name               = var.key_name
+
+  user_data = <<-EOF
+              #!/bin/bash
+              dnf update -y
+
+              # Install Java (required for Jenkins)
+              dnf install -y java-17-amazon-corretto
+
+              # Install Jenkins
+              wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+              rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+              dnf install -y jenkins
+
+              systemctl enable jenkins
+              systemctl start jenkins
+
+              # Install Docker (for building images)
+              dnf install -y docker
+              systemctl enable docker
+              systemctl start docker
+              usermod -aG docker jenkins
+              EOF
+
+  tags = {
+    Name = "${var.project_name}-jenkins-server"
   }
 }
